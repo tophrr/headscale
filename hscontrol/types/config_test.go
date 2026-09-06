@@ -35,7 +35,7 @@ func TestReadConfig(t *testing.T) {
 					return nil, err
 				}
 
-				return dns, nil
+				return dns.dns, nil
 			},
 			want: DNSConfig{
 				MagicDNS:         true,
@@ -56,7 +56,11 @@ func TestReadConfig(t *testing.T) {
 				},
 				ExtraRecords: []tailcfg.DNSRecord{
 					{Name: "grafana.myvpn.example.com", Type: "A", Value: "100.64.0.3"},
-					{Name: "prometheus.myvpn.example.com", Type: "A", Value: "100.64.0.4"},
+					{
+						Name:  "prometheus.myvpn.example.com",
+						Type:  "A",
+						Value: "100.64.0.4",
+					},
 				},
 				SearchDomains: []string{"test.com", "bar.com"},
 			},
@@ -88,7 +92,11 @@ func TestReadConfig(t *testing.T) {
 				},
 				ExtraRecords: []tailcfg.DNSRecord{
 					{Name: "grafana.myvpn.example.com", Type: "A", Value: "100.64.0.3"},
-					{Name: "prometheus.myvpn.example.com", Type: "A", Value: "100.64.0.4"},
+					{
+						Name:  "prometheus.myvpn.example.com",
+						Type:  "A",
+						Value: "100.64.0.4",
+					},
 				},
 			},
 		},
@@ -101,7 +109,7 @@ func TestReadConfig(t *testing.T) {
 					return nil, err
 				}
 
-				return dns, nil
+				return dns.dns, nil
 			},
 			want: DNSConfig{
 				MagicDNS:         false,
@@ -122,7 +130,11 @@ func TestReadConfig(t *testing.T) {
 				},
 				ExtraRecords: []tailcfg.DNSRecord{
 					{Name: "grafana.myvpn.example.com", Type: "A", Value: "100.64.0.3"},
-					{Name: "prometheus.myvpn.example.com", Type: "A", Value: "100.64.0.4"},
+					{
+						Name:  "prometheus.myvpn.example.com",
+						Type:  "A",
+						Value: "100.64.0.4",
+					},
 				},
 				SearchDomains: []string{"test.com", "bar.com"},
 			},
@@ -154,7 +166,11 @@ func TestReadConfig(t *testing.T) {
 				},
 				ExtraRecords: []tailcfg.DNSRecord{
 					{Name: "grafana.myvpn.example.com", Type: "A", Value: "100.64.0.3"},
-					{Name: "prometheus.myvpn.example.com", Type: "A", Value: "100.64.0.4"},
+					{
+						Name:  "prometheus.myvpn.example.com",
+						Type:  "A",
+						Value: "100.64.0.4",
+					},
 				},
 			},
 		},
@@ -222,6 +238,38 @@ func TestReadConfig(t *testing.T) {
 			},
 		},
 		{
+			name:       "dns-use-with-exit-node",
+			configPath: "testdata/dns-use-with-exit-node.yaml",
+			setup: func(t *testing.T) (any, error) { //nolint:thelper
+				_, err := LoadServerConfig()
+				if err != nil {
+					return nil, err
+				}
+
+				dns, err := dns()
+				if err != nil {
+					return nil, err
+				}
+
+				return dnsToTailcfgDNS(dns), nil
+			},
+			want: &tailcfg.DNSConfig{
+				Proxied: true,
+				Domains: []string{"derp2.no"},
+				Resolvers: []*dnstype.Resolver{
+					{Addr: "100.64.0.1"},
+					{Addr: "100.64.0.2", UseWithExitNode: true},
+				},
+				Routes: map[string][]*dnstype.Resolver{
+					"foo.bar.com": {
+						{Addr: "100.64.0.1", UseWithExitNode: true},
+						{Addr: "100.64.0.2"},
+					},
+					"baz.example.com": {{Addr: "100.64.0.1"}},
+				},
+			},
+		},
+		{
 			name:       "policy-path-is-loaded",
 			configPath: "testdata/policy-path-is-loaded.yaml",
 			setup: func(t *testing.T) (any, error) { //nolint:thelper // inline test closure
@@ -263,6 +311,78 @@ func TestReadConfig(t *testing.T) {
 			if diff := cmp.Diff(tt.want, conf); diff != "" {
 				t.Errorf("ReadConfig() mismatch (-want +got):\n%s", diff)
 			}
+		})
+	}
+}
+
+func TestUseWithExitNodeConfigValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   string
+		override bool
+		wantErr  string
+	}{
+		{
+			name: "global-without-override",
+			config: `    global:
+      - 1.1.1.1
+    use_with_exit_node:
+      global:
+        - 1.1.1.1`,
+			wantErr: "dns.nameservers.use_with_exit_node.global requires " +
+				"dns.override_local_dns to be true",
+		},
+		{
+			name:     "global-not-configured",
+			override: true,
+			config: `    global:
+      - 1.1.1.1
+    use_with_exit_node:
+      global:
+        - 8.8.8.8`,
+			wantErr: `use_with_exit_node nameserver is not configured in dns.nameservers.global: "8.8.8.8"`,
+		},
+		{
+			name: "split-domain-not-configured",
+			config: `    split:
+      internal.example.com:
+        - 1.1.1.1
+    use_with_exit_node:
+      split:
+        other.example.com:
+          - 1.1.1.1`,
+			wantErr: `use_with_exit_node nameserver is not configured for split domain "other.example.com"`,
+		},
+		{
+			name: "split-address-not-configured",
+			config: `    split:
+      internal.example.com:
+        - 1.1.1.1
+    use_with_exit_node:
+      split:
+        internal.example.com:
+          - 8.8.8.8`,
+			wantErr: `use_with_exit_node nameserver is not configured for split domain "internal.example.com": "8.8.8.8"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Reset()
+
+			config := fmt.Sprintf(`noise:
+  private_key_path: noise_private.key
+dns:
+  override_local_dns: %t
+  nameservers:
+%s
+`, tt.override, tt.config)
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(config), 0o600))
+			require.NoError(t, LoadConfig(path, true))
+
+			_, err := dns()
+			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 }
@@ -313,7 +433,7 @@ func TestReadConfigFromEnv(t *testing.T) {
 					return nil, err
 				}
 
-				return dns, nil
+				return dns.dns, nil
 			},
 			want: DNSConfig{
 				MagicDNS:         true,
@@ -329,6 +449,32 @@ func TestReadConfigFromEnv(t *testing.T) {
 				// 	{Name: "prometheus.myvpn.example.com", Type: "A", Value: "100.64.0.4"},
 				// },
 				SearchDomains: []string{"test.com", "bar.com"},
+			},
+		},
+		{
+			name: "use-with-exit-node-global",
+			configEnv: map[string]string{
+				"HEADSCALE_DNS_BASE_DOMAIN":                           "example.com",
+				"HEADSCALE_DNS_OVERRIDE_LOCAL_DNS":                    "true",
+				"HEADSCALE_DNS_NAMESERVERS_GLOBAL":                    "1.1.1.1 8.8.8.8",
+				"HEADSCALE_DNS_NAMESERVERS_USE_WITH_EXIT_NODE_GLOBAL": "1.1.1.1",
+			},
+			setup: func(t *testing.T) (any, error) { //nolint:thelper
+				dns, err := dns()
+				if err != nil {
+					return nil, err
+				}
+
+				return dnsToTailcfgDNS(dns), nil
+			},
+			want: &tailcfg.DNSConfig{
+				Proxied: true,
+				Domains: []string{"example.com"},
+				Resolvers: []*dnstype.Resolver{
+					{Addr: "1.1.1.1", UseWithExitNode: true},
+					{Addr: "8.8.8.8"},
+				},
+				Routes: map[string][]*dnstype.Resolver{},
 			},
 		},
 	}
@@ -347,7 +493,11 @@ func TestReadConfigFromEnv(t *testing.T) {
 			conf, err := tt.setup(t)
 			require.NoError(t, err)
 
-			if diff := cmp.Diff(tt.want, conf, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(
+				tt.want,
+				conf,
+				cmpopts.EquateEmpty(),
+			); diff != "" {
 				t.Errorf("ReadConfig() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -500,7 +650,10 @@ database:
   type: sqlite
 oidc:` + tt.oidcBlock + "\n")
 
-			require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), configYaml, 0o600))
+			require.NoError(
+				t,
+				os.WriteFile(filepath.Join(tmpDir, "config.yaml"), configYaml, 0o600),
+			)
 			require.NoError(t, LoadConfig(tmpDir, false))
 
 			err := validateServerConfig()
@@ -905,7 +1058,11 @@ func TestTrustedProxies(t *testing.T) {
 
 			require.NoError(t, err)
 
-			if diff := cmp.Diff(tt.want, got, cmpopts.EquateComparable(netip.Prefix{})); diff != "" {
+			if diff := cmp.Diff(
+				tt.want,
+				got,
+				cmpopts.EquateComparable(netip.Prefix{}),
+			); diff != "" {
 				t.Errorf("trustedProxies() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -924,11 +1081,11 @@ func TestExtraRecordsAreLowercased(t *testing.T) {
 		{Name: "nas.fritz.box", Type: "A", Value: "192.168.1.3"},
 	}
 
-	tcfg := dnsToTailcfgDNS(DNSConfig{
+	tcfg := dnsToTailcfgDNS(parsedDNSConfig{dns: DNSConfig{
 		MagicDNS:     true,
 		BaseDomain:   "example.com",
 		ExtraRecords: mixed,
-	})
+	}})
 	if diff := cmp.Diff(want, tcfg.ExtraRecords); diff != "" {
 		t.Errorf("dnsToTailcfgDNS extra records mismatch (-want +got):\n%s", diff)
 	}

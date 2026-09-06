@@ -324,6 +324,7 @@ jobs:
           - TestExitRoutesWithAutogroupInternetACL
           - TestSubnetRouterMultiNetwork
           - TestSubnetRouterMultiNetworkExitNode
+          - TestExitNodeUseWithExitNodeDNS
           - TestAutoApproveMultiNetwork/authkey-tag.*
           - TestAutoApproveMultiNetwork/authkey-user.*
           - TestAutoApproveMultiNetwork/authkey-group.*
