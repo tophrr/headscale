@@ -1,4 +1,3 @@
----
 name: Build (main)
 
 on:
@@ -22,7 +21,6 @@ defaults:
 
 jobs:
   container:
-    if: github.repository == 'juanfont/headscale'
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -31,17 +29,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
-      - name: Login to DockerHub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Login to GHCR
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: NixOS/nix-installer-action@6b8548fe06acfb0155a50ab5d561accb215764cc # main
@@ -52,34 +44,19 @@ jobs:
 
       - name: Build and push to GHCR
         env:
-          KO_DOCKER_REPO: ghcr.io/juanfont/headscale
+          KO_DOCKER_REPO: ghcr.io/${{ github.repository }}
           KO_DEFAULTBASEIMAGE: gcr.io/distroless/base-debian13
           CGO_ENABLED: "0"
         run: |
           ko build \
             --bare \
-            --image-annotation=org.opencontainers.image.source=https://github.com/juanfont/headscale \
-            --image-label=org.opencontainers.image.source=https://github.com/juanfont/headscale \
+            --image-annotation=org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --image-label=org.opencontainers.image.source=https://github.com/${{ github.repository }} \
             --platform=linux/amd64,linux/arm64 \
-            --tags=main-${GITHUB_SHA::7},development \
-            ./cmd/headscale
-
-      - name: Push to Docker Hub
-        env:
-          KO_DOCKER_REPO: headscale/headscale
-          KO_DEFAULTBASEIMAGE: gcr.io/distroless/base-debian13
-          CGO_ENABLED: "0"
-        run: |
-          ko build \
-            --bare \
-            --image-annotation=org.opencontainers.image.source=https://github.com/juanfont/headscale \
-            --image-label=org.opencontainers.image.source=https://github.com/juanfont/headscale \
-            --platform=linux/amd64,linux/arm64 \
-            --tags=main-${GITHUB_SHA::7},development \
+            --tags=main-${GITHUB_SHA::7},latest,development \
             ./cmd/headscale
 
   binaries:
-    if: github.repository == 'juanfont/headscale'
     runs-on: ubuntu-latest
     strategy:
       matrix:
